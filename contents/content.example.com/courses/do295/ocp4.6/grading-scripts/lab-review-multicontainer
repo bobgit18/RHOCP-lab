@@ -1,0 +1,443 @@
+#!/usr/bin/bash
+#
+# Copyright 2019 Red Hat, Inc
+#
+# NAME
+#     lab-review-multicontainer - grading script for DO288 ch10s04 lab
+#
+# SYNOPSIS
+#     lab-review-multicontainer {start|finish|grade|cleanup}
+#
+#        start   - prepare the system for starting the lab
+#        finish  - indicate you completed the lab
+#        grade   - grande the work done by the student
+#        cleanup - perform post-lab cleanup to restart it
+#
+# DESCRIPTION
+#     This script, based on singular argument, either does setup, grading,
+#     cleanup, or solve for the particular lab of awesomeness.
+#
+# CHANGELOG
+#   * Thu Aug 05 2017 Fernando Lozano <flozano@redhat.com>
+#   - updates to OCP 4.1 and shared clister
+#   * Thu Dec 27 2017 Fernando Lozano <flozano@redhat.com>
+#   - original code
+
+
+PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin
+
+# Initialize and set some variables
+run_as_root='true'
+
+# Required by the do288 shlib
+this='review-multicontainer'
+title='Lab: Building and Deploying a Multi-container Application'
+
+
+# This defines which subcommands are supported (setup, grade, etc.).
+# Corresponding lab_COMMAND functions must be defined.
+declare -a valid_commands=(start finish grade cleanup)
+
+
+function lab_start {
+
+  ocp4_print_prereq_header
+  ocp4_verify_local_clone_exist
+  ocp4_is_cluster_up
+
+  print_line ' Checking required artifacts:'
+  ocp4_verify_prereq_git_projects 'todo-frontend' 'todo-backend'
+  ocp4_verify_prereq_nexus_repositories 'nodejs'
+
+  local common="${RHT_OCP4_DEV_USER}-review-common"
+
+  ocp4_pad "Project '${common}' from first review lab exists"
+
+  if oc get project "${common}" -o name
+  then
+    print_SUCCESS
+  else
+    print_FAIL
+  fi
+
+  local is='todo-frontend'
+
+  ocp4_pad "Image stream '${is}' from first review lab exists"
+  if oc get is "${is}" -n "${common}" -o name
+  then
+    print_SUCCESS
+  else
+    print_FAIL
+  fi
+
+  ocp4_pad "Image stream tag '${is}:latest' from first review lab exists"
+  if oc get istag "${is}:latest" -n "${common}" -o name
+  then
+    print_SUCCESS
+  else
+    print_FAIL
+  fi
+
+  ocp4_fail_if_project_exists "${RHT_OCP4_DEV_USER}-${this}"
+
+  ocp4_print_setup_header
+  ocp4_grab_lab_files
+
+  local template="${labs}/${this}/todoapp.yaml"
+
+  ocp4_pad "Inserting developer user name and wildcard domain on starter template file"
+  if sed -i "s/youruser/${RHT_OCP4_DEV_USER}/" "${template}" \
+    && sed -i "s/yourgituser/${RHT_OCP4_GITHUB_USER}/" "${template}" \
+    && sed -i "s/apps\.cluster\.example\.com/${RHT_OCP4_WILDCARD_DOMAIN}/" "${template}" \
+    && sed -i "s/nexus-common\.apps\.cluster\.example\.com/${RHT_OCP4_NEXUS_SERVER}/" "${template}"
+  then
+    print_SUCCESS
+  else
+    print_FAIL
+  fi
+
+  local soltemplate="${solutions}/${this}/todoapp.yaml"
+
+  ocp4_pad "Inserting developer user name and wildcard domain on solution template file"
+  if sed -i "s/youruser/${RHT_OCP4_DEV_USER}/" "${soltemplate}" \
+    && sed -i "s/yourgituser/${RHT_OCP4_GITHUB_USER}/" "${soltemplate}" \
+    && sed -i "s/apps\.cluster\.example\.com/${RHT_OCP4_WILDCARD_DOMAIN}/" "${soltemplate}" \
+    && sed -i "s/nexus-common\.apps\.cluster\.example\.com/${RHT_OCP4_NEXUS_SERVER}/" "${soltemplate}"
+  then
+    print_SUCCESS
+  else
+    print_FAIL
+  fi
+
+  ocp4_print_setup_footer
+}
+
+
+function lab_finish {
+
+  ocp4_print_cleanup_header
+  ocp4_verify_local_clone_clean
+
+  print_line
+  print_line "Not doing any cleanup because this is part of the course comprehensive review".
+  print_line
+  print_line "If you wish to start over the comprehensive review, run the following command:"
+  print_line "$ lab ${this} cleanup"
+
+  ocp4_print_cleanup_footer
+}
+
+
+function lab_cleanup {
+
+  ocp4_print_cleanup_header
+  ocp4_login_as_developer
+  ocp4_cleanup_lab_files
+  ocp4_delete_project "${RHT_OCP4_DEV_USER}-${this}"
+
+  if oc get template 'todoapp' -n "${RHT_OCP4_DEV_USER}-review-common" -o name
+  then
+    ocp4_pad "Delete template 'todoapp' from project '${RHT_OCP4_DEV_USER}-review-common'"
+    if oc delete template 'todoapp' -n "${RHT_OCP4_DEV_USER}-review-common"
+    then
+      print_SUCCESS
+    else
+      print_FAIL
+    fi
+  fi
+
+  local rolebindings=$(oc get rolebinding -n "${RHT_OCP4_DEV_USER}-review-common" -o jsonpath="{.items[?(@.subjects[0].name=='system:serviceaccounts:${RHT_OCP4_DEV_USER}-review-multicontainer')].metadata.name}")
+  if [ "${rolebindings}" != "" ]
+  then
+  ocp4_pad "Removing 'system:image-puller' role from project '${RHT_OCP4_DEV_USER}-review-multicontainer' on project '${RHT_OCP4_DEV_USER}-review-common'"
+    if oc policy remove-role-from-group \
+      -n ${RHT_OCP4_DEV_USER}-review-common system:image-puller \
+      system:serviceaccounts:${RHT_OCP4_DEV_USER}-review-multicontainer
+    then
+      print_SUCCESS
+    else
+      print_FAIL
+    fi
+  fi
+
+  ocp4_verify_local_clone_clean
+
+  ocp4_print_cleanup_footer
+}
+
+
+#XXX there are lots of non-trivial jsonpath and jq filters here, could become part of the shlib
+
+function lab_grade {
+
+  ocp4_print_grade_header
+
+  local common_proj="${RHT_OCP4_DEV_USER}-review-common"
+
+  print_line " Checking the To Do List multiconainer application template"
+
+  ocp4_login_as_developer
+
+  ocp4_pad "Enter project '${common_proj}'"
+  if oc project "${common_proj}"
+  then
+    print_SUCCESS
+  else
+    print_FAIL
+  fi
+
+  local template='todoapp'
+
+  ocp4_pad "Template resource '${template}' exists"
+  if oc get template "${template}" -o name
+  then
+    print_PASS
+  else
+    print_FAIL
+  fi
+
+  ocp4_pad "Template defines 10 parameters"
+  local nparam=$(oc get template "${template}" -o jsonpath='{.parameters[*].name}' | wc -w)
+  if [ "${nparam}" = '10' ]
+  then
+    print_PASS
+  else
+    print_FAIL
+  fi
+  
+  local param='SECRET'
+  ocp4_pad "Parameter '${param}' is randomly generated"
+  local secret=$(oc get template "${template}" -o jsonpath="{.parameters[?(@.name=='${param}')].generate}")
+  if [ "${secret}" = 'expression' ]
+  then
+    print_PASS
+  else
+    print_FAIL
+  fi
+  
+  local param='CLEAN_DATABASE'
+  ocp4_pad "Parameter '${param}' has default value of 'false'"
+  local cleandb=$(oc get template "${template}" -o jsonpath="{.parameters[?(@.name=='${param}')].value}")
+  if [ "${cleandb}" = 'false' ]
+  then
+    print_PASS
+  else
+    print_FAIL
+  fi
+  
+  ocp4_pad "Secret key references the 'PASSWORD' parameter"
+  local value=$(oc get template "${template}" -o jsonpath='{.objects[?(@.kind=="Secret")].stringData.password}')
+  if [ "${value}" = '${PASSWORD}' ]
+  then
+    print_PASS
+  else
+    print_FAIL
+  fi
+
+  ocp4_pad "ConfigMap key references the 'CLEAN_DATABASE' parameter"
+  local value=$(oc get template "${template}" -o jsonpath='{.objects[?(@.kind=="ConfigMap")].data.init}')
+  if [ "${value}" = '${CLEAN_DATABASE}' ]
+  then
+    print_PASS
+  else
+    print_FAIL
+  fi
+
+  local app='frontend'
+
+  #XXX found no way to use multiple filters with -o jsonpath, had to revert to jq
+
+  ocp4_pad "Front-end pod references the 'BACKEND' parameter"
+  local param='BACKEND'
+  local value=$(oc get template "${template}" -o json | jq ".objects[] | select(.kind == \"DeploymentConfig\") | select(.metadata.name == \"${app}\") | .spec.template.spec.containers[0].env[] | select(.name == \"BACKEND_HOST\") | .value" -)
+  if [ "${value}" = "\"\${${param}}\"" ]
+  then
+    print_PASS
+  else
+    print_FAIL
+  fi
+
+  local app='backend'
+
+  ocp4_pad "Back-end route references the 'BACKEND' parameter"
+  local value=$(oc get template "${template}" -o json | jq ".objects[] | select(.kind == \"Route\") | select (.metadata.name == \"${app}\") | .spec.host" -)
+  if [ "${value}" = "\"\${${param}}\"" ]
+  then
+    print_PASS
+  else
+    print_FAIL
+  fi
+
+  local app='frontend'
+
+  ocp4_pad "Front-end route references the 'HOSTNAME' parameter"
+  local param='HOSTNAME'
+  local value=$(oc get template "${template}" -o json | jq ".objects[] | select(.kind == \"Route\") | select (.metadata.name == \"${app}\") | .spec.host" -)
+  if [ "${value}" = "\"\${${param}}\"" ]
+  then
+    print_PASS
+  else
+    print_FAIL
+  fi
+
+  local app='backend'
+
+  local path='/todo/api/items-count'
+  ocp4_pad "Back-end deployment configuration defines a liveness probe that points to '${path}'"
+  local value=$(oc get template "${template}" -o json | jq ".objects[] | select(.kind == \"DeploymentConfig\") | select(.metadata.name == \"${app}\") | .spec.template.spec.containers[0].livenessProbe.httpGet.path" -)
+  if [ "${value}" = "\"${path}\"" ]
+  then
+    print_PASS
+  else
+    print_FAIL
+  fi
+
+  local path='/todo/api/host'
+  ocp4_pad "Back-end deployment configuration defines a readiness probe that points to '${path}'"
+  local value=$(oc get template "${template}" -o json | jq ".objects[] | select(.kind == \"DeploymentConfig\") | select(.metadata.name == \"${app}\") | .spec.template.spec.containers[0].readinessProbe.httpGet.path" -)
+  if [ "${value}" = "\"${path}\"" ]
+  then
+    print_PASS
+  else
+    print_FAIL
+  fi
+
+  #XXX should also check that both probes have initialDelaySeconds: 10 and timeoutSeconds: 3 but I am out of time :-(
+
+  local project="${RHT_OCP4_DEV_USER}-${this}"
+
+  print_line
+  print_line ' Checking the database deployment'
+
+  ocp4_pad "Enter project '${project}'"
+  if oc project "${project}"
+  then
+    print_PASS
+  else
+    print_FAIL
+  fi
+
+  local app='tododb'  
+
+  ocp4_pad "Database pod is ready and runnning"
+  if ocp4_check_pod_from_dc_ready_and_running "${project}" "${app}"
+  then
+    print_PASS
+  else
+    print_FAIL
+  fi
+
+  print_line
+  print_line ' Checking the front-end deployment'
+
+  local app='frontend'  
+
+  ocp4_pad "Front-end pod is ready and runnning"
+  if ocp4_check_pod_from_dc_ready_and_running "${project}" "${app}"
+  then
+    print_PASS
+  else
+    print_FAIL
+  fi
+
+  ocp4_pad "Route '${app}' exists"
+  if oc get route "${app}" -o name
+  then
+    print_PASS
+  else
+    print_FAIL
+  fi
+
+  local hostname=$(oc get route "${app}" -o jsonpath='{.spec.host}')
+  local url="http://${hostname}/index.html"
+  
+  ocp4_pad "Front-end welcome page is available"
+  if ocp4_check_http_status 200 "${url}"
+  then
+    print_PASS
+  else
+    print_FAIL
+  fi
+
+  ocp4_pad "Front-end welcome page returns the expected title"
+  local title='<h1>To Do List Application</h1>'
+  if curl -s "${url}" | grep -q "${title}"
+  then
+    print_PASS
+  else
+    print_FAIL
+  fi
+
+  print_line
+  print_line ' Checking the back-end deployment'
+
+  local app='backend'  
+
+  local gitrepo="https://github.com/${RHT_OCP4_GITHUB_USER}/DO288-apps"
+
+  ocp4_pad "Build configuration points to correct git repo, branch, and context dir"
+  local git_uri=$(oc get bc "${app}" -o jsonpath='{.spec.source.git.uri}')
+  local git_ref=$(oc get bc "${app}" -o jsonpath='{.spec.source.git.ref}')
+  local git_ctx=$(oc get bc "${app}" -o jsonpath='{.spec.source.contextDir}')
+  if [ "${git_uri}" = "${gitrepo}" -a "${git_ref}" = "master" -a "${git_ctx}" = 'todo-backend' ]
+  then
+    print_PASS
+  else
+    print_FAIL
+  fi
+  
+  ocp4_pad "Back-end build was successful"
+  if ocp4_check_latest_build_successful "${project}" "${app}"
+  then
+    print_PASS
+  else
+    print_FAIL
+  fi
+
+  ocp4_pad "Back-end pod is ready and runnning"
+  if ocp4_check_pod_from_dc_ready_and_running "${project}" "${app}"
+  then
+    print_PASS
+  else
+    print_FAIL
+  fi
+
+  ocp4_pad "Route '${app}' exists"
+  if oc get route "${app}" -o name
+  then
+    print_PASS
+  else
+    print_FAIL
+  fi
+
+  local hostname=$(oc get route "${app}" -o jsonpath='{.spec.host}')
+  local url="http://${hostname}/todo/api/items-count"
+  
+  ocp4_pad "Back-end HTTP API page is available"
+  if ocp4_check_http_status 200 "${url}"
+  then
+    print_PASS
+  else
+    print_FAIL
+  fi
+
+  ocp4_pad "Back-end HTTP API returns six items"
+  local count='{"count":6}'
+  if curl -s "${url}" | grep -q "${count}"
+  then
+    print_PASS
+  else
+    print_FAIL
+  fi
+
+  ocp4_print_grade_footer
+}
+
+
+############### Don't EVER change anything below this line ###############
+
+# Source library of functions
+source /usr/local/lib/${function_lib}
+source /usr/local/lib/labtool.do288.shlib
+
+grading_main_program "$@"

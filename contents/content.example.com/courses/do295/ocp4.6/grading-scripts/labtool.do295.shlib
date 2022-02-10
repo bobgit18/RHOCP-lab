@@ -1,0 +1,23 @@
+#
+# Copyright 2019 Red Hat, Inc.
+#
+# NAME
+#     labtool.do295.shlib - lab grading script do295 function library
+#
+# SYNOPSIS
+#     Add the following line at the top of your script:
+#
+#        source /path/to/labtool.do295.shlib
+#
+#     *after* the source of the generic labtool.shlib
+#
+# DESCRIPTION
+#
+# CHANGELOG
+#   * mar mar 10 2020 
+#   - Automatically generated
+
+
+
+#source labtool.do180.shlib
+#source labtool.do288.shlib

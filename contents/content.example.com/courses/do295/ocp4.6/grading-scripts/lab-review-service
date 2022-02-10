@@ -1,0 +1,333 @@
+#!/usr/bin/bash
+#
+# Copyright 2019 Red Hat, Inc
+#
+# NAME
+#     lab-review-service - grading script for DO288 ch10s03 lab
+#
+# SYNOPSIS
+#     lab-review-service {start|finish|grade|cleanup}
+#
+#        start   - prepare the system for starting the lab
+#        finish  - indicate you completed the lab
+#        grade   - grande the work done by the student
+#        cleanup - perform post-lab cleanup
+#
+# DESCRIPTION
+#     This script, based on singular argument, either does setup, grading,
+#     cleanup, or solve for the particular lab of awesomeness.
+#
+# CHANGELOG
+#   * Thu Aug 02 2019 Fernando Lozano <flozano@redhat.com>
+#   - changes to OCP 4.1 shared cluster
+#   * Thu Dec 26 2017 Fernando Lozano <flozano@redhat.com>
+#   - original code
+
+
+PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin
+
+# Initialize and set some variables
+run_as_root='true'
+
+# Required by the do288 shlib
+this='review-service'
+title='Lab: Containerizing and Deploying a Service'
+
+
+# This defines which subcommands are supported (setup, grade, etc.).
+# Corresponding lab_COMMAND functions must be defined.
+declare -a valid_commands=(start finish grade cleanup)
+
+
+function lab_start {
+
+  ocp4_print_prereq_header
+  ocp4_verify_local_clone_exist
+  ocp4_is_cluster_up
+
+  print_line ' Checking required artifacts:'
+  ocp4_verify_prereq_git_projects 'todo-backend'
+  ocp4_verify_prereq_nexus_repositories 'nodejs'
+  ocp4_fail_if_project_exists "${RHT_OCP4_DEV_USER}-${this}"
+
+  ocp4_print_setup_header
+  ocp4_grab_lab_files 'no-solution'
+  ocp4_print_setup_footer
+}
+
+
+function lab_finish {
+
+  ocp4_print_cleanup_header
+  ocp4_verify_local_clone_clean
+
+  print_line
+  print_line "Not doing any cleanup because you need the artifacts you create performing this exercise for"
+  print_line "Lab: Buildig and Deploying a Multicontainer Application."
+  print_line
+  print_line "If you wish to start over the comprehensive review, run the following command:"
+  print_line "$ lab ${this} cleanup"
+
+  ocp4_print_cleanup_footer
+}
+
+
+function lab_cleanup {
+
+  ocp4_print_cleanup_header
+  ocp4_login_as_developer
+  ocp4_cleanup_lab_files 'no-solution'
+  ocp4_delete_project "${RHT_OCP4_DEV_USER}-${this}"
+  ocp4_verify_local_clone_clean
+
+  ocp4_print_cleanup_footer
+}
+
+
+function lab_grade {
+
+  ocp4_print_grade_header
+
+  print_line ' Checking the database deployment'
+
+  ocp4_login_as_developer
+
+  local project="${RHT_OCP4_DEV_USER}-${this}"
+
+  ocp4_pad "Enter project '${project}'"
+  if oc project "${project}"
+  then
+    print_PASS
+  else
+    print_FAIL
+  fi
+
+  local container='.spec.template.spec.containers[0]'
+  local app='tododb'
+
+  ocp4_pad "Deployment configuration '${app}' exists"
+  if oc get dc "${app}" -o name
+  then
+    print_PASS
+  else
+    print_FAIL
+  fi
+
+  ocp4_pad "Database deployment points to the MySQL server image"
+  local from=$(oc get dc "${app}" -o jsonpath="{${container}.image}")
+  local image='registry.access.redhat.com/rhscl/mysql-57-rhel7'
+  if [ "${from%%@*}" = "${image}" ]
+  then
+    print_PASS
+  else
+    print_FAIL
+  fi
+
+  ocp4_pad "Database pod is ready and runnning"
+  if ocp4_check_pod_from_dc_ready_and_running "${project}" "${app}"
+  then
+    print_PASS
+  else
+    print_FAIL
+  fi
+
+  local secret='tododb'
+
+  ocp4_pad "Secret '${secret}' exists"
+  if oc get secret "${secret}" -o name
+  then
+    print_PASS
+  else
+    print_FAIL
+  fi
+
+  ocp4_pad "Secret contains correct user name"
+  local user=$(oc get secret "${secret}" -o jsonpath='{.data.user}')
+  if [ "${user}" = 'dG9kb2FwcA==' ]
+  then
+    print_PASS
+  else
+    print_FAIL
+  fi
+
+  pad " · Secret contains correct password"
+  local pass=$(oc get secret "${secret}" -o jsonpath='{.data.password}')
+  if [ "${pass}" = 'bXlwYXNz' ]
+  then
+    print_PASS
+  else
+    print_FAIL
+  fi
+
+  local valueFromKey='.valueFrom.secretKeyRef.key'
+
+  pad " · Database deployment gets user name from secret"
+  local user_name=$(oc get dc "${app}" -o jsonpath="{${container}.env[?(@.name=='MYSQL_USER')]${valueFromKey}}")
+  if [ "${user_name}" = 'user' ]
+  then
+    print_PASS
+  else
+    print_FAIL
+  fi
+
+  pad " · Database deployment gets password from secret"
+  local user_pass=$(oc get dc "${app}" -o jsonpath="{${container}.env[?(@.name=='MYSQL_PASSWORD')]${valueFromKey}}")
+  if [ "${user_pass}" = 'password' ]
+  then
+    print_PASS
+  else
+    print_FAIL
+  fi
+
+  print_line
+  print_line ' Checking the back-end deployment'
+
+  local app='backend'
+
+  ocp4_pad "Build configuration '${app}' exists"
+  if oc get bc "${app}" -o name
+  then
+    print_PASS
+  else
+    print_FAIL
+  fi
+
+  local gitrepo="https://github.com/${RHT_OCP4_GITHUB_USER}/DO288-apps"
+
+  ocp4_pad "Build configuration points to correct git repo, branch, and context dir"
+  local git_uri=$(oc get bc "${app}" -o jsonpath='{.spec.source.git.uri}')
+
+  # Removing .git extension and ending / from the git URI
+  git_uri=${git_uri%.git}
+  git_uri=${git_uri%/}
+
+  local git_ref=$(oc get bc "${app}" -o jsonpath='{.spec.source.git.ref}')
+  local git_ctx=$(oc get bc "${app}" -o jsonpath='{.spec.source.contextDir}')
+  if [ "${git_uri}" = "${gitrepo}" -a "${git_ref}" = "${this}" -a "${git_ctx}" = 'todo-backend' ]
+  then
+    print_PASS
+  else
+    print_FAIL
+  fi
+
+  ocp4_pad "Application build was successful"
+  if ocp4_check_latest_build_successful "${project}" "${app}"
+  then
+    print_PASS
+  else
+    print_FAIL
+  fi
+
+  local msg='Recording successful build on the life cycle management system'
+
+  ocp4_pad "Build logs contain custom S2I script message"
+  if oc logs bc/"${app}" | grep -q "${msg}"
+  then
+    print_PASS
+  else
+    print_FAIL
+  fi
+
+  ocp4_pad "Deployment configuration '${app}' exists"
+  if oc get dc "${app}" -o name
+  then
+    print_PASS
+  else
+    print_FAIL
+  fi
+
+  ocp4_pad "Application pod is ready and runnning"
+  if ocp4_check_pod_from_dc_ready_and_running "${project}" "${app}"
+  then
+    print_PASS
+  else
+    print_FAIL
+  fi
+
+  ocp4_pad "Application deployment gets user name from secret"
+  local user_name=$(oc get dc "${app}" -o jsonpath="{${container}.env[?(@.name=='DATABASE_USER')]${valueFromKey}}")
+  if [ "${user_name}" = 'user' ]
+  then
+    print_PASS
+  else
+    print_FAIL
+  fi
+
+  ocp4_pad "Application deployment gets password from secret"
+  local user_pass=$(oc get dc "${app}" -o jsonpath="{${container}.env[?(@.name=='DATABASE_PASSWORD')]${valueFromKey}}")
+  if [ "${user_pass}" = 'password' ]
+  then
+    print_PASS
+  else
+    print_FAIL
+  fi
+
+  local configmap='todoapp'
+
+  ocp4_pad "Configuration map '${configmap}' exists"
+  if oc get cm "${configmap}" -o name
+  then
+    print_PASS
+  else
+    print_FAIL
+  fi
+
+  ocp4_pad "Configuration map contains correct application parameter"
+  local init=$(oc get cm "${configmap}" -o jsonpath='{.data.init}')
+  if [ "${init}" = 'true' ]
+  then
+    print_PASS
+  else
+    print_FAIL
+  fi
+
+  local valueFromKey='.valueFrom.configMapKeyRef.key'
+
+  ocp4_pad "Application deployment gets DATABASE_INIT from configmap"
+  local user_env=$(oc get dc "${app}" -o jsonpath="{${container}.env[?(@.name=='DATABASE_INIT')]${valueFromKey}}")
+  if [ "${user_env}" = 'init' ]
+  then
+    print_PASS
+  else
+    print_FAIL
+  fi
+
+  ocp4_pad "Route '${app}' exists"
+  if oc get route "${app}" -o name
+  then
+    print_PASS
+  else
+    print_FAIL
+  fi
+
+  local hostname=$(oc get route "${app}" -o jsonpath='{.spec.host}')
+  local url="http://${hostname}/todo/api/items-count"
+
+  ocp4_pad "Back-end HTTP API is available"
+  if ocp4_check_http_status 200 "${url}"
+  then
+    print_PASS
+  else
+    print_FAIL
+  fi
+
+  ocp4_pad "Back-end HTTP API returns zero items"
+  local count='{"count":0}'
+  if curl -s "${url}" | grep -q "${count}"
+  then
+    print_PASS
+  else
+    print_FAIL
+  fi
+
+  ocp4_print_grade_footer
+}
+
+
+############### Don't EVER change anything below this line ###############
+
+# Source library of functions
+source /usr/local/lib/${function_lib}
+source /usr/local/lib/labtool.do288.shlib
+
+grading_main_program "$@"

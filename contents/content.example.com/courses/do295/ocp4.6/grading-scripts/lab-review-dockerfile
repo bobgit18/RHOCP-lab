@@ -1,0 +1,267 @@
+#!/usr/bin/bash
+#
+# Copyright 2019 Red Hat, Inc
+#
+# NAME
+#     lab-review-dockerfile - grading script for DO288 ch10s02 lab
+#
+# SYNOPSIS
+#     lab-review-dockerfile {start|finish|grade|cleanup}
+#
+#        start   - prepare the system for starting the lab
+#        finish  - indicate you completed the lab
+#        grade   - grande the work done by the student
+#        cleanup - perform post-lab cleanup to restart it
+#
+# DESCRIPTION
+#     This script, based on singular argument, either does setup, grading,
+#     cleanup, or solve for the particular lab of awesomeness.
+#
+# CHANGELOG
+#   * Thu Aug 02 2019 Fernando Lozano <flozano@redhat.com>
+#   - changes for shared cluster
+#   * Thu Dec 14 2017 Fernando Lozano <flozano@redhat.com>
+#   - original code
+
+
+PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin
+
+# Initialize and set some variables
+run_as_root='true'
+
+# Required by the do288 shlib
+this='review-dockerfile'
+title='Lab: Designing a Container Image for OpenShift'
+
+
+# This defines which subcommands are supported (setup, grade, etc.).
+# Corresponding lab_COMMAND functions must be defined.
+declare -a valid_commands=(start finish grade cleanup)
+
+
+function lab_start {
+
+  ocp4_print_prereq_header
+  ocp4_verify_local_clone_exist
+  ocp4_is_cluster_up
+
+  print_line ' Checking required artifacts:'
+  ocp4_verify_prereq_git_projects 'todo-frontend'
+  ocp4_fail_if_project_exists "${RHT_OCP4_DEV_USER}-review-common" "${RHT_OCP4_DEV_USER}-${this}"
+
+  ocp4_print_setup_header
+  ocp4_grab_lab_files
+  ocp4_print_setup_footer
+}
+
+
+function lab_finish {
+
+  ocp4_print_cleanup_header
+  ocp4_verify_local_clone_clean
+
+  print_line
+  print_line "Not doing any cleanup because you need the artifacts you created performing this exercise for"
+  print_line "Lab: Building and Deploying a Multicontainer Application."
+  print_line
+  print_line "If you wish to start the entire comprehensive review over, run the following command:"
+  print_line "$ lab ${this} cleanup"
+
+  ocp4_print_cleanup_footer
+}
+
+
+function lab_cleanup {
+
+  ocp4_print_cleanup_header
+  ocp4_login_as_developer
+  ocp4_cleanup_lab_files
+  ocp4_delete_project "${RHT_OCP4_DEV_USER}-${this}" "${RHT_OCP4_DEV_USER}-review-common"
+  ocp4_verify_local_clone_clean
+
+  ocp4_delete_stop_container 'testfrontend'
+  local image='todo-frontend'
+  ocp4_delete_local_image "${image}"
+
+  print_line
+  print_line 'If you want to perform this exercise again, you need to access quay.io'
+  print_line "and delete your ${image} repository."
+  print_line
+
+  ocp4_print_cleanup_footer
+}
+
+
+function lab_grade {
+
+  ocp4_print_grade_header
+
+  #XXX cannot check that image exists in quay.io because it is inside a private image repo
+
+  print_line ' Checking the front-end container image'
+
+  local image='todo-frontend'
+
+  ocp4_pad "Local image '${image}' exists"
+  if podman inspect --type image --format "{{.Id}}" "${image}"
+  then
+    print_PASS
+  else
+    print_FAIL
+  fi
+
+  ocp4_pad "Local image '${image}' has 11 or less layers"
+  local nlayers=$(podman inspect --type image --format '{{len .RootFS.Layers}}' "${image}")
+  if [ "${nlayers}" -le 11 ]
+  then
+    print_PASS
+  else
+    print_FAIL
+  fi
+
+  local common_proj="${RHT_OCP4_DEV_USER}-review-common"
+
+  print_line
+  print_line " Checking the front-end image stream"
+
+  ocp4_login_as_developer
+
+  ocp4_pad "Enter project '${common_proj}'"
+  if oc project "${common_proj}"
+  then
+    print_PASS
+  else
+    print_FAIL
+  fi
+
+  ocp4_pad "Secret 'quayio' exists"
+  if oc get secret "quayio" -o name
+  then
+    print_PASS
+  else
+    print_FAIL
+  fi
+
+  ocp4_pad "Secret 'quayio' includes authentication data for 'quay.io'"
+  local auth=$(oc get secret 'quayio' -o jsonpath="{.data['\.dockerconfigjson']}" | base64 -d | jq -r '.auths["quay.io"]' -)
+  if [ "${auth}" != "" -a "${auth}" != "null" ]
+  then
+    print_PASS
+  else
+    print_FAIL
+  fi
+
+  ocp4_pad "Image stream '${image}' exists"
+  if oc get is "${image}" -o name
+  then
+    print_PASS
+  else
+    print_FAIL
+  fi
+
+  ocp4_pad "Image stream tag '${image}:latest' exists"
+  if oc get istag "${image}:latest" -o name
+  then
+    print_PASS
+  else
+    print_FAIL
+  fi
+
+  ocp4_pad "Image stream '${image}' points to student's account at Quay.io"
+  local from=$(oc get is "${image}" -o jsonpath='{.spec.tags[0].from.name}')   
+  if [ "${from}" = "quay.io/${RHT_OCP4_QUAY_USER}/${image}" ]
+  then
+    print_PASS
+  else
+    print_FAIL
+  fi
+
+  ocp4_pad "Image stream '${image}' reference policy is 'Local'"
+  local refPolicy=$(oc get is "${image}" -o jsonpath='{.spec.tags[0].referencePolicy.type}')   
+  if [ "${refPolicy}" = "Local" ]
+  then
+    print_PASS
+  else
+    print_FAIL
+  fi
+
+  local project="${RHT_OCP4_DEV_USER}-${this}"
+
+  print_line
+  print_line " Checking the test deployment"
+
+  ocp4_pad "Enter project '${project}'"
+  if oc project "${project}"
+  then
+    print_PASS
+  else
+    print_FAIL
+  fi
+
+  local app='frontend'  
+
+  ocp4_pad "Deployment configuration '${app}' exists in '${common_proj}'"
+  if oc get dc "${app}" -o name
+  then
+    print_PASS
+  else
+    print_FAIL
+  fi
+
+  ocp4_pad "Front-end deployment defines the 'BACKEND_HOST' environment variable as 'api.example.com'"
+  local backend_host=$(oc get dc "${app}" -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="BACKEND_HOST")].value}')
+  if [ "${backend_host}" = 'api.example.com' ]
+  then
+    print_PASS
+  else
+    print_FAIL
+  fi
+
+  ocp4_pad "Front-end deployment points to the '${image}' image stream from '${common_proj}'"
+  local fromis=$(oc get dc "${app}" -o jsonpath='{.spec.triggers[?(@.type=="ImageChange")].imageChangeParams.from.name}')
+  local fromns=$(oc get dc "${app}" -o jsonpath='{.spec.triggers[?(@.type=="ImageChange")].imageChangeParams.from.namespace}')
+  if [ "${fromis}" = "${image}:latest" -a "${fromns}" = "${common_proj}" ]
+  then
+    print_PASS
+  else
+    print_FAIL
+  fi
+
+  ocp4_pad "Front-end pod is ready and runnning"
+  if ocp4_check_pod_from_dc_ready_and_running "${project}" "${app}"
+  then
+    print_PASS
+  else
+    print_FAIL
+  fi
+
+  ocp4_pad "Route '${app}' exists"
+  if oc get route "${app}" -o name
+  then
+    print_PASS
+  else
+    print_FAIL
+  fi
+
+  local title='<h1>To Do List Application</h1>'
+
+  ocp4_pad "Application returns the '${title}' title"
+  local hostname=$(oc get route "${app}" -o jsonpath='{.spec.host}')
+  if curl -s "http://${hostname}" | grep -q "${title}"
+  then
+    print_PASS
+  else
+    print_FAIL
+  fi
+
+  ocp4_print_grade_footer
+}
+
+
+############### Don't EVER change anything below this line ###############
+
+# Source library of functions
+source /usr/local/lib/${function_lib}
+source /usr/local/lib/labtool.do288.shlib
+
+grading_main_program "$@"

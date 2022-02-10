@@ -1,0 +1,43 @@
+---
+manifest version: 1
+curriculum:
+ name: DO295
+ release: 1.r2021-09-13
+ description: Containers, Kubernetes, and Red Hat OpenShift Development II
+ technology: 8.4
+ modality: [ ILT, RAV ]
+ generation: 7
+ locale: [ en_US ]
+ publish date: 2021-09-13
+ publisher: aglogows
+ artifacts:
+ - filename: foundation0-do295-8.4-1.r2020102613git4f46c0f.noarch.rpm 
+   type: content
+   content type: rpm
+   target directory: ucf/Packages
+   usage: [ classroom ]
+   checksum: 178164f81917b8e87073295a635588de
+ - filename: rhel-classroom-vda-50G-8.2-placeholder.qcow2
+   type: content
+   content type: file
+   target directory: ocp4.6/x86_64/vms
+   final name: /var/lib/libvirt/images/DO295-classroom-vda.qcow2
+   usage: [ foundation ]
+   checksum: 178164f81917b8e87073295a635588de
+ - filename: redhat-training-slides-DO295-8.4-en-0-20201026-placeholder.noarch.rpm
+   type: content
+   content type: rpm
+   target directory: ucf/Packages
+   usage: [ classroom ]
+   checksum: 178164f81917b8e87073295a635588de
+ - filename: ClassroomSetup-DO295-8.4-1.r2020102613git4f46c0f.txt
+   type: content
+   content type: file
+   target directory: docs
+   final name: /root/ClassroomSetup-DO295-8.4-1.r2020102613git4f46c0f.txt
+   usage: [ classroom ]
+   checksum: 36c739b2223f25afdc91e0fd6b304105
+ - filename: DO295-8.4-en-0-20201026-placeholder-IG.pdf
+   type: source
+   usage: [ classroom ]
+   checksum: 178164f81917b8e87073295a635588de

@@ -1,0 +1,7 @@
+RHT_VENUE=novello
+RHT_ROLE=workstation
+RHT_ENROLLMENT=1
+RHT_COURSE=do295
+RHT_TITLE="Containers, Kubernetes, and Red Hat OpenShift Development II"
+RHT_VMTREE="ocp4.6/x86_64"
+RHT_NETWORK=yes

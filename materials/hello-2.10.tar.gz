@@ -1,0 +1,56 @@
+<?xml version='1.0' encoding='utf-8'?>
+<!DOCTYPE html PUBLIC '-//W3C//DTD XHTML 1.1//EN' 'http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd'>
+<html xmlns='http://www.w3.org/1999/xhtml' xml:lang='en'>
+    <head>
+        <title>404 - Not Found</title>
+        <link rel="stylesheet" type="text/css" media="screen" href="/directory_list/directory_list.css" />
+<script type="text/javascript">
+window.google_analytics_uacct = "UA-330438-12";
+</script>
+<script type="text/javascript">
+    var _gaq = _gaq || [];
+    _gaq.push(['_setAccount', 'UA-330438-12']);
+    _gaq.push(['_trackPageview']);
+
+    (function() {
+        var ga = document.createElement('script'); ga.type = 'text/javascript'; ga.async = true;
+        ga.src = ('https:' == document.location.protocol ? 'https://ssl' : 'http://www') + '.google-analytics.com/ga.js';
+        var s = document.getElementsByTagName('script')[0]; s.parentNode.insertBefore(ga, s);
+    })();
+</script>
+    </head>
+    <body>
+    <div id="header" class="header">
+        <div id="header-logo" class="header-logo">
+            <a rel="home" href="http://www.ibiblio.org/">
+                <img alt="ibiblio" src="https://www.ibiblio.org/hosted/images/md_ibiblio_trans.gif">
+            </a>
+            <p id="header-description" class="header-logo">The Public's Library and Digital Archive</p>
+        </div>
+        <div id="header-search" class="header-search">
+<script type="text/javascript" src="http://www.google.com/jsapi"></script>
+<script type="text/javascript">
+  google.load('search', '1');
+  google.setOnLoadCallback(function() {
+    google.search.CustomSearchControl.attachAutoCompletion(
+      '006345117986368989313:58chbvov0a0',
+      document.getElementById('q'),
+      'cse-search-box');
+  });
+</script>
+<form action="http://mirrors.ibiblio.org/search/" id="custom-search">
+  <div>
+    <input type="hidden" name="cx" value="006345117986368989313:58chbvov0a0" />
+    <input type="hidden" name="cof" value="FORID:11" />
+    <input type="hidden" name="ie" value="UTF-8" />
+    <input type="text" name="q" id="q" autocomplete="off" size="31" />
+    <input type="submit" name="sa" value="Search" />
+  </div>
+</form>
+<script type="text/javascript" src="http://www.google.com/cse/brand?form=cse-search-box&lang=en"></script>
+        </div>
+    </div>
+    <div class="clear"></div>
+        <h1>404 - Not Found</h1>
+    </body>
+</html>
